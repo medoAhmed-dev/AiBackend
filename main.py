@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from api.chat import router as chat_router  # noqa: E402  (must load .env first)
 
