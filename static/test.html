@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>/chat test page (local only)</title>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    max-width: 640px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    background: #f5f5f7;
+  }
+  h1 { font-size: 1.2rem; }
+  .setup {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+  }
+  .setup label { display: block; margin-top: 0.5rem; color: #555; }
+  .setup input { width: 100%; box-sizing: border-box; padding: 0.4rem; margin-top: 0.2rem; }
+  .setup button { margin-top: 0.5rem; }
+  #log {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 1rem;
+    min-height: 300px;
+    max-height: 500px;
+    overflow-y: auto;
+    margin-bottom: 1rem;
+  }
+  .msg { margin-bottom: 0.8rem; }
+  .msg .who { font-size: 0.75rem; color: #888; margin-bottom: 0.2rem; }
+  .msg .bubble { padding: 0.6rem 0.8rem; border-radius: 8px; display: inline-block; white-space: pre-wrap; }
+  .patient .bubble { background: #dceeff; }
+  .ai .bubble { background: #eee; }
+  .error .bubble { background: #ffdede; color: #900; }
+  .badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: bold;
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    margin-left: 0.4rem;
+    vertical-align: middle;
+  }
+  .badge.green { background: #d4f7d4; color: #227722; }
+  .badge.yellow { background: #fff3cd; color: #8a6d00; }
+  .badge.red { background: #ffd4d4; color: #a30000; }
+  form { display: flex; gap: 0.5rem; }
+  #messageInput { flex: 1; padding: 0.6rem; font-size: 1rem; }
+  button { padding: 0.6rem 1rem; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<h1>/chat test page (local dev only)</h1>
+
+<div class="setup">
+  <label>Patient ID
+    <input id="patientId" value="a1b2c3d4-e5f6-7890-abcd-ef1234567890">
+  </label>
+  <label>Auth token (fetched automatically from /dev/token)
+    <input id="token" placeholder="click 'Get test token' below">
+  </label>
+  <button id="getTokenBtn" type="button">Get test token</button>
+</div>
+
+<div id="log"></div>
+
+<form id="chatForm">
+  <input id="messageInput" placeholder="Type a message…" autocomplete="off">
+  <button type="submit">Send</button>
+</form>
+
+<script>
+  const log = document.getElementById('log');
+  const tokenInput = document.getElementById('token');
+  const patientIdInput = document.getElementById('patientId');
+  const messageInput = document.getElementById('messageInput');
+
+  // conversation_history sent to /chat, matches the API's expected shape
+  let history = [];
+
+  tokenInput.value = localStorage.getItem('chat_test_token') || '';
+
+  function addMessage(role, text, urgency) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'msg ' + role;
+
+    const who = document.createElement('div');
+    who.className = 'who';
+    who.textContent = role === 'patient' ? 'You' : role === 'ai' ? 'AI' : 'Error';
+    wrapper.appendChild(who);
+
+    const bubble = document.createElement('span');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    wrapper.appendChild(bubble);
+
+    if (urgency) {
+      const badge = document.createElement('span');
+      badge.className = 'badge ' + urgency;
+      badge.textContent = urgency.toUpperCase();
+      wrapper.appendChild(badge);
+    }
+
+    log.appendChild(wrapper);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function getTestToken() {
+    const patientId = patientIdInput.value.trim();
+    const res = await fetch('/dev/token?patient_id=' + encodeURIComponent(patientId));
+    if (!res.ok) {
+      addMessage('error', 'Could not get a test token (status ' + res.status + '). Is ENVIRONMENT=development in .env?');
+      return;
+    }
+    const data = await res.json();
+    tokenInput.value = data.token;
+    localStorage.setItem('chat_test_token', data.token);
+  }
+
+  document.getElementById('getTokenBtn').addEventListener('click', getTestToken);
+
+  // Auto-fetch a token on first load if we don't already have one saved
+  if (!tokenInput.value) {
+    getTestToken();
+  }
+
+  document.getElementById('chatForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const message = messageInput.value.trim();
+    if (!message) return;
+
+    addMessage('patient', message);
+    messageInput.value = '';
+
+    let res;
+    try {
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + tokenInput.value,
+        },
+        body: JSON.stringify({
+          patient_id: patientIdInput.value.trim(),
+          message: message,
+          conversation_history: history,
+        }),
+      });
+    } catch (err) {
+      addMessage('error', 'Network error — is the server running on this same origin? (' + err.message + ')');
+      return;
+    }
+
+    if (!res.ok) {
+      const body = await res.text();
+      addMessage('error', 'Server returned ' + res.status + ': ' + body);
+      return;
+    }
+
+    const data = await res.json();
+    addMessage('ai', data.reply, data.urgency);
+
+    history.push({ role: 'patient', content: message });
+    history.push({ role: 'ai', content: data.reply });
+  });
+</script>
+
+</body>
+</html>
