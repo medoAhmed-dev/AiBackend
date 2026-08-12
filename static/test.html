@@ -117,7 +117,7 @@
     const patientId = patientIdInput.value.trim();
     const res = await fetch('/dev/token?patient_id=' + encodeURIComponent(patientId));
     if (!res.ok) {
-      addMessage('error', 'Could not get a test token (status ' + res.status + '). Is ENVIRONMENT=development in .env?');
+      addMessage('error', 'Auto-token isn\'t available here (status ' + res.status + '). Ask whoever sent you this link for a token link, or paste a token into the field above.');
       return;
     }
     const data = await res.json();
@@ -127,8 +127,20 @@
 
   document.getElementById('getTokenBtn').addEventListener('click', getTestToken);
 
-  // Auto-fetch a token on first load if we don't already have one saved
-  if (!tokenInput.value) {
+  // A shared link can carry ?token=...&patient_id=... so a friend can just
+  // click it instead of needing /dev/token (which is disabled in production).
+  const urlParams = new URLSearchParams(window.location.search);
+  const sharedToken = urlParams.get('token');
+  const sharedPatientId = urlParams.get('patient_id');
+  if (sharedPatientId) {
+    patientIdInput.value = sharedPatientId;
+  }
+  if (sharedToken) {
+    tokenInput.value = sharedToken;
+    localStorage.setItem('chat_test_token', sharedToken);
+  } else if (!tokenInput.value) {
+    // Auto-fetch a token on first load if we don't already have one saved
+    // (works locally where /dev/token is enabled; harmless no-op elsewhere)
     getTestToken();
   }
 
