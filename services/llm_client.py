@@ -1,11 +1,20 @@
 import json
 import os
+import time
 from pathlib import Path
 
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
 from schemas.chat import ChatMessage
+
+# Gemini's own client already retries internally, but during a real demand
+# spike that's not always enough (observed firsthand: 503 UNAVAILABLE /
+# "high demand", intermittently, even after its internal retry gave up).
+# One extra layer of backoff here measurably improves success odds without
+# making a failing request hang for too long.
+_MAX_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = (1, 2)
 
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "medical_system_prompt.txt"
 
@@ -47,12 +56,23 @@ def get_llm_response(message: str, conversation_history: list[ChatMessage]) -> d
     ]
     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=message)]))
 
-    response = _get_client().models.generate_content(
-        model=os.getenv("MODEL_NAME", "gemini-flash-latest"),
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=_load_system_prompt(),
-            response_mime_type="application/json",
-        ),
+    model = os.getenv("MODEL_NAME", "gemini-flash-latest")
+    config = types.GenerateContentConfig(
+        system_instruction=_load_system_prompt(),
+        response_mime_type="application/json",
     )
-    return json.loads(response.text)
+
+    last_error: Exception | None = None
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            response = _get_client().models.generate_content(
+                model=model, contents=contents, config=config
+            )
+            return json.loads(response.text)
+        except errors.ServerError as exc:
+            # Transient (5xx, e.g. 503 "high demand") — worth a retry.
+            last_error = exc
+            if attempt < _MAX_ATTEMPTS - 1:
+                time.sleep(_RETRY_BACKOFF_SECONDS[attempt])
+
+    raise last_error
