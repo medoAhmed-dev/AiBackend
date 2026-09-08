@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.pkl
+# ...except the trained queue-prediction model artifact, which is committed
+# on purpose so the repo is runnable without a training step.
+!models/queue_prediction/model.pkl
 .venv/
 venv/
 .vscode/

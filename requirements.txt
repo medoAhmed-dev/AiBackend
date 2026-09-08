@@ -6,3 +6,8 @@ python-dotenv
 httpx
 pytest
 pyjwt
+scikit-learn
+xgboost
+pandas
+numpy
+joblib

@@ -10,10 +10,12 @@ from fastapi.responses import FileResponse
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from api.chat import router as chat_router  # noqa: E402  (must load .env first)
+from api.queue import router as queue_router  # noqa: E402
 
 app = FastAPI(title="Aether Threads AI Backend")
 
 app.include_router(chat_router)
+app.include_router(queue_router)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
