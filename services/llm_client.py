@@ -56,7 +56,7 @@ def get_llm_response(message: str, conversation_history: list[ChatMessage]) -> d
     ]
     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=message)]))
 
-    model = os.getenv("MODEL_NAME", "gemini-flash-latest")
+    model = os.getenv("MODEL_NAME", "gemini-flash-lite-latest")
     config = types.GenerateContentConfig(
         system_instruction=_load_system_prompt(),
         response_mime_type="application/json",
