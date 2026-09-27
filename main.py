@@ -11,6 +11,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from api.chat import router as chat_router  # noqa: E402  (must load .env first)
 from api.queue import router as queue_router  # noqa: E402
+from core.auth import SUPABASE_AUDIENCE  # noqa: E402
 
 app = FastAPI(title="Aether Threads AI Backend")
 
@@ -37,8 +38,18 @@ def dev_token(patient_id: str = "a1b2c3d4-e5f6-7890-abcd-ef1234567890") -> dict:
     ENVIRONMENT=development — never enable this in a deployed environment."""
     if os.getenv("ENVIRONMENT") != "development":
         raise HTTPException(status_code=404)
+    now = int(time.time())
     token = jwt.encode(
-        {"sub": patient_id, "exp": int(time.time()) + 3600},
+        {
+            # Mirrors the shape of a real Supabase access token — notably the
+            # `aud` claim — so local testing exercises the same auth path the
+            # app hits, instead of a simpler token that only works here.
+            "sub": patient_id,
+            "aud": SUPABASE_AUDIENCE,
+            "role": "authenticated",
+            "iat": now,
+            "exp": now + 3600,
+        },
         os.getenv("SUPABASE_JWT_SECRET"),
         algorithm="HS256",
     )
