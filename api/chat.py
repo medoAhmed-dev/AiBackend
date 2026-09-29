@@ -27,7 +27,11 @@ def chat(request: ChatRequest, _patient_sub: str = Depends(verify_token)) -> Cha
         )
 
     try:
-        raw = llm_client.get_llm_response(request.message, request.conversation_history)
+        raw = llm_client.get_llm_response(
+            request.message,
+            request.conversation_history,
+            language=safety.detect_language(request.message),
+        )
         response = ChatResponse(**raw)
     except Exception:
         logger.exception("LLM call failed for patient_id=%s", request.patient_id)

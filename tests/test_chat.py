@@ -105,6 +105,31 @@ def test_multi_turn_conversation_forwards_history_to_llm(mock_llm):
     assert called_history[0].content == "I've had a headache since yesterday."
 
 
+@patch("services.llm_client.get_llm_response", return_value=MOCK_MILD_RESPONSE)
+def test_short_english_message_still_requests_an_english_reply(mock_llm):
+    # Regression: a one-word English message ("headache") came back in Arabic
+    # 4 times out of 5 when the model was left to infer the language. The
+    # language is now decided here and passed explicitly.
+    _post_chat(
+        {
+            "patient_id": PATIENT_ID,
+            "message": "headache",
+            "conversation_history": [{"role": "patient", "content": "string"}],
+        }
+    )
+
+    assert mock_llm.call_args.kwargs["language"] == "en"
+
+
+@patch("services.llm_client.get_llm_response", return_value=MOCK_MILD_RESPONSE_AR)
+def test_short_arabic_message_requests_an_arabic_reply(mock_llm):
+    _post_chat(
+        {"patient_id": PATIENT_ID, "message": "صداع", "conversation_history": []}
+    )
+
+    assert mock_llm.call_args.kwargs["language"] == "ar"
+
+
 @patch("services.llm_client.get_llm_response", return_value=MOCK_MILD_RESPONSE_AR)
 def test_arabic_emergency_symptom_forces_red_regardless_of_model_output(mock_llm):
     response = _post_chat(

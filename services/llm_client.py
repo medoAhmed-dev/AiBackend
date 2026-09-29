@@ -98,15 +98,21 @@ def _generate_json(system_prompt: str, contents: list[types.Content]) -> dict:
     raise last_error
 
 
-def get_llm_response(message: str, conversation_history: list[ChatMessage]) -> dict:
+def get_llm_response(
+    message: str, conversation_history: list[ChatMessage], language: str = "en"
+) -> dict:
+    """`language` is decided in code ('en' or 'ar'), never inferred by the
+    model. Left to infer, a one-word English message ("headache") came back
+    in Arabic 4 times out of 5 — short messages give it too little to go on."""
     contents = [
         types.Content(role=_role_for_gemini(turn.role), parts=[types.Part.from_text(text=turn.content)])
         for turn in conversation_history
     ]
     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=message)]))
 
-    system_prompt = _load_prompt("medical_system_prompt.txt", _CHAT_JSON_INSTRUCTIONS)
-    return _generate_json(system_prompt, contents)
+    rule = _LANGUAGE_RULE.get(language, _LANGUAGE_RULE["en"])
+    base = _load_prompt("medical_system_prompt.txt", _CHAT_JSON_INSTRUCTIONS)
+    return _generate_json(f"{rule}\n\n{base}\n\n{rule}", contents)
 
 
 # Naming the output language in the *system* instruction is what actually
