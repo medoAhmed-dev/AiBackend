@@ -88,9 +88,23 @@ def _is_arabic(text: str) -> bool:
     return arabic_chars > latin_chars
 
 
-def detect_red_flag(message: str) -> bool:
+def detect_language(text: str) -> str:
+    """'ar' or 'en'. Deciding this in code and instructing the model
+    explicitly is far more reliable than asking it to infer the language —
+    left to infer, it answered English reports in Arabic every time."""
+    return "ar" if _is_arabic(text) else "en"
+
+
+def matched_red_flags(message: str) -> list[str]:
+    """Which red-flag phrases the message actually contains. The symptom
+    checker reports these back to the caller, so it isn't enough to know
+    only that *something* matched."""
     lowered = message.lower()
-    return any(keyword in lowered for keyword in RED_FLAG_KEYWORDS)
+    return [keyword for keyword in RED_FLAG_KEYWORDS if keyword in lowered]
+
+
+def detect_red_flag(message: str) -> bool:
+    return bool(matched_red_flags(message))
 
 
 def emergency_reply_for(message: str) -> str:
