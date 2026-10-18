@@ -5,6 +5,7 @@ from pathlib import Path
 import jwt
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -16,6 +17,23 @@ from api.symptom_check import router as symptom_check_router  # noqa: E402
 from core.auth import SUPABASE_AUDIENCE  # noqa: E402
 
 app = FastAPI(title="Aether Threads AI Backend")
+
+# The Flutter app has web enabled, and a browser blocks cross-origin requests
+# unless the server opts in. Native builds (Android/iOS) don't enforce CORS,
+# so this only matters for the web target — but without it every request from
+# a browser fails before it reaches a route.
+#
+# Origins are open while the app is still in development and served from
+# whatever port Flutter picks. Narrow this to the real deployed origins before
+# this is used for anything real: every endpoint is behind a JWT check, but
+# that guards *who* can call it, not *which site* can.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 app.include_router(chat_router)
 app.include_router(queue_router)
