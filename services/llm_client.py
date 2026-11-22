@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -13,8 +14,30 @@ from schemas.chat import ChatMessage
 # "high demand", intermittently, even after its internal retry gave up).
 # One extra layer of backoff here measurably improves success odds without
 # making a failing request hang for too long.
-_MAX_ATTEMPTS = 3
-_RETRY_BACKOFF_SECONDS = (1, 2)
+_PRIMARY_ATTEMPTS = 2
+_RETRY_BACKOFF_SECONDS = 1
+
+# Retrying one model isn't enough: a model can be unavailable for a sustained
+# stretch, not just a moment. This has taken the service down three separate
+# times, each time with a different model overloaded while others answered
+# fine. The "-latest" aliases are the worst affected — they're everyone's
+# default, so they absorb the most load.
+#
+# So after the primary is exhausted, fall through to other models. Each
+# fallback gets a single attempt: the point is to find one that's answering,
+# not to wait out one that isn't.
+_FALLBACK_MODELS = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+]
+
+logger = logging.getLogger("medical_chat.llm")
+
+
+def _models_to_try() -> list[str]:
+    primary = os.getenv("MODEL_NAME", _FALLBACK_MODELS[0])
+    return [primary] + [m for m in _FALLBACK_MODELS if m != primary]
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -75,26 +98,42 @@ def _role_for_gemini(role: str) -> str:
 
 
 def _generate_json(system_prompt: str, contents: list[types.Content]) -> dict:
-    """Single retry-hardened call path shared by every LLM-backed feature."""
-    model = os.getenv("MODEL_NAME", "gemini-flash-lite-latest")
+    """Single retry-hardened call path shared by every LLM-backed feature.
+
+    Retries the configured model, then falls through to alternatives if it
+    stays unavailable — a 503 from one model says nothing about the others.
+    """
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         response_mime_type="application/json",
     )
 
+    models = _models_to_try()
     last_error: Exception | None = None
-    for attempt in range(_MAX_ATTEMPTS):
-        try:
-            response = _get_client().models.generate_content(
-                model=model, contents=contents, config=config
-            )
-            return json.loads(response.text)
-        except errors.ServerError as exc:
-            # Transient (5xx, e.g. 503 "high demand") — worth a retry.
-            last_error = exc
-            if attempt < _MAX_ATTEMPTS - 1:
-                time.sleep(_RETRY_BACKOFF_SECONDS[attempt])
 
+    for index, model in enumerate(models):
+        is_primary = index == 0
+        attempts = _PRIMARY_ATTEMPTS if is_primary else 1
+
+        for attempt in range(attempts):
+            try:
+                response = _get_client().models.generate_content(
+                    model=model, contents=contents, config=config
+                )
+                if not is_primary:
+                    logger.warning(
+                        "Primary model %s unavailable; served by fallback %s",
+                        models[0],
+                        model,
+                    )
+                return json.loads(response.text)
+            except errors.ServerError as exc:
+                # Transient (5xx, e.g. 503 "high demand").
+                last_error = exc
+                if attempt < attempts - 1:
+                    time.sleep(_RETRY_BACKOFF_SECONDS)
+
+    logger.error("Every model was unavailable: %s", ", ".join(models))
     raise last_error
 
 

@@ -29,7 +29,7 @@ Copy `.env.example` to `.env` and fill in real values — `GEMINI_API_KEY` and
 | Variable | Purpose |
 |---|---|
 | `GEMINI_API_KEY` | Gemini API access for `/chat` |
-| `MODEL_NAME` | Gemini model (default `gemini-flash-lite-latest`) |
+| `MODEL_NAME` | Primary Gemini model (default `gemini-3.6-flash`); falls back to others if it is unavailable |
 | `SUPABASE_JWT_SECRET` | Verifies incoming auth tokens |
 | `ENVIRONMENT` | `development` locally; **must be `production` when deployed** (see below) |
 
