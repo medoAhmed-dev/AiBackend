@@ -12,7 +12,9 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from api.chat import router as chat_router  # noqa: E402  (must load .env first)
 from api.doctor_recommendation import router as doctor_recommendation_router  # noqa: E402
+from api.previsit import router as previsit_router  # noqa: E402
 from api.queue import router as queue_router  # noqa: E402
+from api.queue_priority import router as queue_priority_router  # noqa: E402
 from api.symptom_check import router as symptom_check_router  # noqa: E402
 from core.auth import SUPABASE_AUDIENCE  # noqa: E402
 
@@ -37,8 +39,10 @@ app.add_middleware(
 
 app.include_router(chat_router)
 app.include_router(queue_router)
+app.include_router(queue_priority_router)
 app.include_router(symptom_check_router)
 app.include_router(doctor_recommendation_router)
+app.include_router(previsit_router)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 

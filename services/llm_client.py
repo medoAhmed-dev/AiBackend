@@ -78,6 +78,34 @@ Never state a condition as confirmed — these are possibilities to discuss with
 a doctor, not a diagnosis.
 """
 
+_PREVISIT_JSON_INSTRUCTIONS = """
+Respond with a single JSON object only, matching exactly this shape:
+{
+  "summary": "string — the brief itself, a short paragraph for the doctor",
+  "key_points": ["string", ...],
+  "questions_for_doctor": ["string", ...],
+  "flags_for_clinician": ["string", ...]
+}
+
+Leave an array empty rather than padding it. flags_for_clinician is for
+things that would change the clinician's approach — red-flag symptoms,
+relevant history, allergies — not for routine detail.
+"""
+
+_QA_JSON_INSTRUCTIONS = """
+Respond with a single JSON object only, matching exactly this shape:
+{
+  "answer": "string — a direct answer first, then the detail behind it",
+  "key_points": ["string", ...],
+  "needs_assessment": true | false,
+  "related_questions": ["string", ...]
+}
+
+Set needs_assessment to true when the question is really about symptoms the
+person is experiencing right now, rather than a general question — the app
+uses it to steer them to a proper symptom assessment.
+"""
+
 _client: genai.Client | None = None
 
 
@@ -179,3 +207,28 @@ def get_symptom_assessment(intake: str, language: str = "en") -> dict:
 
     contents = [types.Content(role="user", parts=[types.Part.from_text(text=intake)])]
     return _generate_json(system_prompt, contents)
+
+
+def _with_language(rule: str, base: str) -> str:
+    """Language rule stated at both ends: a trailing instruction carries more
+    weight than one buried above a long prompt, and the leading one sets the
+    frame before the model reads anything else."""
+    separator = "\n\n"
+    return separator.join([rule, base, rule])
+
+
+def get_previsit_summary(intake: str, language: str = "en") -> dict:
+    """`intake` is the appointment context rendered as text. `language` is
+    decided in code ('en' or 'ar'), never inferred by the model."""
+    rule = _LANGUAGE_RULE.get(language, _LANGUAGE_RULE["en"])
+    base = _load_prompt("previsit_summary_prompt.txt", _PREVISIT_JSON_INSTRUCTIONS)
+    contents = [types.Content(role="user", parts=[types.Part.from_text(text=intake)])]
+    return _generate_json(_with_language(rule, base), contents)
+
+
+def get_medical_answer(question: str, language: str = "en") -> dict:
+    """A general medical question, not a symptom report."""
+    rule = _LANGUAGE_RULE.get(language, _LANGUAGE_RULE["en"])
+    base = _load_prompt("medical_qa_prompt.txt", _QA_JSON_INSTRUCTIONS)
+    contents = [types.Content(role="user", parts=[types.Part.from_text(text=question)])]
+    return _generate_json(_with_language(rule, base), contents)
