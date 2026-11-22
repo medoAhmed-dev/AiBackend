@@ -1,18 +1,33 @@
 # Aether Threads — AI Backend
 
-FastAPI service for the project's AI features. Phase 1 is complete: a medical guidance
-chat endpoint (LLM-based) and a queue wait-time prediction endpoint (classic ML).
+FastAPI service for the project's AI features. Seven endpoints across three different
+techniques: a language model for the conversational features, a model trained on data
+for wait-time prediction, and transparent scoring where decisions must be explainable.
 
 **Live:** https://aibackend-l780.onrender.com
 
 | Endpoint | Method | What it does | Approach |
 |---|---|---|---|
-| `/chat` | POST | Medical guidance chat (EN + AR) | Gemini API |
+| `/chat` | POST | Medical guidance conversation (EN + AR) | Gemini API |
+| `/symptom-check` | POST | Structured triage: ranked conditions + recommended action | Gemini API |
+| `/previsit-summary` | POST | Condenses what a patient reported into a brief for the doctor | Gemini API |
+| `/ask` | POST | General medical questions (not symptom reports) | Gemini API |
 | `/predict-queue` | POST | Estimated wait time | XGBoost regressor |
+| `/recommend-doctor` | POST | Ranked doctor suggestions with reasons | Weighted scoring |
+| `/prioritize-queue` | POST | Reorders a live queue by clinical urgency | Rule-based triage |
 | `/health` | GET | Liveness check | — |
 | `/test` | GET | Browser test page for `/chat` | — |
 
-Both `/chat` and `/predict-queue` require `Authorization: Bearer <supabase_jwt>`.
+Every `POST` endpoint requires `Authorization: Bearer <supabase_jwt>`.
+
+**Auth note:** real Supabase tokens are signed **ES256** and verified against the
+project's JWKS endpoint. The older shared-secret (HS256) scheme cannot verify them —
+it is accepted only when `ENVIRONMENT=development`, so local test tokens keep working
+while a deployed environment accepts nothing but genuine logins.
+
+**Model note:** if the configured Gemini model is unavailable (503 "high demand",
+which has happened repeatedly), the backend falls through to other models rather
+than failing. `MODEL_NAME` sets the first choice.
 
 ## Setup
 
@@ -45,7 +60,8 @@ uvicorn main:app --reload --port 8000
 python -m pytest
 ```
 
-15 tests: 6 for `/chat` behavior, 3 for LLM retry logic, 6 for `/predict-queue`.
+68 tests covering every endpoint, the auth layer, model fallback and the safety rules.
+External calls are mocked, so the suite runs offline and costs nothing.
 
 ---
 
@@ -182,3 +198,56 @@ AI/
 ├── static/test.html  # Browser test page for /chat
 └── tests/
 ```
+
+
+---
+
+## `POST /prioritize-queue`
+
+Reorders a doctor's live queue when clinical urgency differs from booking order.
+No model involved — rule-based and fully explainable, because a patient moved down
+the queue deserves a reason that can be stated plainly.
+
+```json
+{
+  "doctor_id": "c3d4e5f6-...",
+  "patients": [
+    {"appointment_id": "a1", "scheduled_time": "09:00", "urgency": "routine", "waited_minutes": 90},
+    {"appointment_id": "a2", "scheduled_time": "11:00", "urgency": "emergency", "waited_minutes": 0}
+  ]
+}
+```
+
+Returns each patient's new position, how many places they moved, and why.
+
+**The fairness rule:** ordering purely by urgency starves routine patients — on a busy
+day a steady trickle of urgent cases could leave someone waiting indefinitely. So waiting
+time escalates priority, and past roughly 45 minutes a long-waiting routine patient
+outranks a freshly arrived urgent one.
+
+That escalation is **capped**, and the cap is a safety property rather than a tuning
+detail: uncapped, a patient waiting long enough would eventually outscore an emergency.
+A test caught exactly that. The cap sits above the routine-to-urgent gap, so fairness
+still works, and far below the gap to emergency, so no amount of waiting can overtake one.
+
+---
+
+## `POST /previsit-summary`
+
+Turns what a patient reported before an appointment into a short brief for the clinician —
+why they are here, what they reported, what would change the approach, what is worth asking.
+
+Red flags found in the patient's own words are inserted into `flags_for_clinician` even
+when the model omitted them. Same principle as the chat safety layer: it doesn't depend
+on the model having a good day.
+
+---
+
+## `POST /ask`
+
+General medical questions — how a medication works, what a test measures — as distinct
+from someone describing their own symptoms.
+
+If a question names emergency symptoms it short-circuits to emergency guidance and sets
+`needs_assessment: true`, because that is usually someone describing themselves rather
+than asking out of curiosity. The app should route those to the symptom checker.
